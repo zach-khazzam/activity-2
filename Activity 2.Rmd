@@ -1,0 +1,187 @@
+---
+title: "Activity 2"
+name: Zach Khazzam
+output: pdf_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+```
+
+```{r load-packages, message=FALSE}
+library(tidyverse)
+library(gtsummary)
+library(gt)
+library(knitr)
+library(stringr)
+library(kableExtra)
+library(broom)
+library(lemon)
+library(extrafont)
+```
+
+```{r load-data, message = FALSE}
+GFR <- read.csv("GFR.csv")
+```
+
+### Figure 1
+
+```{r  echo=TRUE}
+GFR <- GFR %>%
+  mutate(preop_GFR = case_when(Female == 1 & African.American == 1 
+                                ~ (175 * sCR.Pre^(-1.154) * Age^(-0.203) * 0.742 * 1.212),
+                               Female == 1 & (African.American == 0 | 
+                                                   is.na(African.American))
+                               ~ (175 * sCR.Pre^(-1.154) * Age^(-0.203) * 0.742),
+                               African.American == 1 & Female == 0 ~ 
+                                 (175 * sCR.Pre^(-1.154) * Age^(-0.203) * 1.212),
+                               TRUE ~ 
+                                 (175 * sCR.Pre^(-1.154) * Age^(-0.203))))
+
+GFR <- GFR %>%
+  mutate(postop_GFR = case_when(Female == 1 & African.American == 1 
+                                ~ (175 * sCR.Post^(-1.154) * Age^(-0.203) * 0.742 * 1.212),
+                               Female == 1 & (African.American == 0 | 
+                                                   is.na(African.American))
+                               ~ (175 * sCR.Post^(-1.154) * Age^(-0.203) * 0.742),
+                               African.American == 1 & Female == 0 ~ 
+                                 (175 * sCR.Post^(-1.154) * Age^(-0.203) * 1.212),
+                               TRUE ~ 
+                                 (175 * sCR.Post^(-1.154) * Age^(-0.203))))
+
+```
+
+
+```{r echo=TRUE}
+GFR$Statins <- as.factor(GFR$Statins)
+
+GFR %>%
+  ggplot(mapping = aes(x = preop_GFR, y = postop_GFR)) +
+  geom_point(size = 1.5, aes(shape = Statins, color = Statins)) +
+  geom_smooth(method = lm, se = FALSE, size = 0.35, color = "deeppink4") +
+  labs(title = "Glomerular filtration rate") +
+  scale_x_continuous(name = "Pre-surgery", limits = c(0, 175), 
+                     breaks = seq(from = 0, to = 175, by = 25)) +
+  scale_y_continuous(name = "Maximum post-surgery", limits = c(0, 175), 
+                     breaks = seq(from = 0, to = 175, by = 25)) +
+  scale_shape_manual(labels = c("Yes", "No"),
+                     breaks = c(1, 0), values = c(19, 1)) +
+  scale_color_manual(labels = c("Yes", "No"),
+                     breaks = c(1, 0), values = c("dodgerblue3", "darkolivegreen4")) +
+  theme(title = element_text(size = 9),
+        plot.title = element_text(hjust = 0.5),
+        axis.title.x = element_text(size = 9),
+        axis.title.y = element_text(size = 9),
+        aspect.ratio = (1/1),
+        legend.title = element_blank(), 
+        legend.key.size = unit(0.05, "cm"),
+        legend.key.height = unit(0.05, "cm"), 
+        legend.key.width = unit(0.1, "cm"),
+        legend.text = element_text(size = 9),
+        legend.key = element_rect(fill = "white"),
+        legend.background = element_rect(color = "black", size = 0.4), 
+        legend.position = c(.19, .71),
+        panel.background = element_rect(fill = "white"), 
+        axis.line = element_line(color = "black", size = 0.4)) +
+  annotate("text", x = 28, y = 145, label = "Statin Use", size = 3.1) +
+  coord_capped_cart(bottom = "both", left = "both")
+```
+
+
+\newpage
+
+### Table 2
+
+```{r, echo=TRUE}
+GFR_m <- GFR %>%
+  mutate(preop_GFR = (preop_GFR/20),
+         Age = (Age/5),
+         Weight = (Weight/10),
+         HCT.Intraop = ((HCT.Intraop/100)/0.05),
+         TVol = (TVol/100), 
+         Crystalloid = (Crystalloid/1000),
+         Colloid = (Colloid/500))
+```
+
+```{r, echo=TRUE}
+model <- lm(postop_GFR ~ preop_GFR + Age + Weight + Female + Diabetes + CHF + Pulm +
+     Renal.Insuff + Acetylcystine + Emergency + HCT.Intraop + TVol + Crystalloid +
+     Colloid + Statins, data = GFR_m) 
+```
+
+```{r, echo=TRUE}
+table_m <- tibble(var = summary(model)$coefficients,
+                  coefficient = model$coefficients,
+                  ci = confint(model),
+                  pval = summary(model)$coefficients[, 4]) %>%
+  mutate(c2.5 = ci[,1], c97.5 = ci[,2])
+
+table_m$var <- c("Intercept","Preoperative eGFR (increase of 20 ml min$^{-1}$ 1.73 m$^{-2}$)",
+"Patient age (increase of 5 yr)", "Weight (increase of 10 kg)", "Female gender ($vs$ male)",
+"Diabetes ($vs$ none)", "History of CHF ($vs$ none)", "History of pulmonary disease ($vs$ none)",
+"History of chronic kidney disease ($vs$ none)", "Use of acetylcysteine ($vs$ none)",
+"Emergent case ($vs$ scheduled)", "Intraoperative haematocrit (increase of 0.05)",
+"Total volume (increase of 0.1 litre kg$^{-1}$ h$^{-2}$)", "Crystalloids (increase of 1 litre)",
+"Colloids (increase of 0.5 litre)", "Statin use ($vs$ none)")
+
+final <- table_m %>%
+  mutate(across(.cols = c(coefficient, c2.5, c97.5), .fns = round),
+         diff = str_glue("{coefficient} ({c2.5}, {c97.5})"),
+         pval = case_when(pval < .001 ~ "<0.001", 
+                          pval < .01 ~ pval %>% round(digits = 3) %>%
+                            as.character(), 
+                          pval > .01 ~ pval %>% round(digits = 2) %>%
+                            as.character()))
+```
+
+```{r, echo=TRUE}
+final %>%
+  slice(2:16) %>%
+  dplyr::select(var, diff, pval) %>%
+  kable(booktabs = T, col.names = c("","in mean postoperative eGFR",""), 
+        caption = "Results from a multivariable linear regression model assessing the
+        relationship between the statin use and the postoperative estimated
+        GFR after adjusting for relevant covariables. eGFR, estimated glomerular filtration rate; 
+        CHF, congestive heart failure. *Estimates adjusted for all other variables included 
+        in this multivariable linear regression model", escape = F) %>%
+  add_header_above(c("Effect" = 1, "Adjusted* difference (95% CI)" = 1, "P-value" = 1), 
+                   bold = T, italic = F, align = "l", underline = F) %>%
+  kable_classic(latex_options = "scale_down", html_font = "Arial") %>%
+  row_spec(0, bold = T) 
+  
+```
+
+
+### Reflection
+
+From the British Journal of Anesthesia article, titled "Association between preoperative statin therapy and postoperative change in glomerular filtration rate in endovascular aortic surgery", I was able to reproduce the results of Figure 1 with a few discrepancies. The first discrepency I had was losing an outlier on the far right side of the graph. After trying to figure out why I lost this outlier for awhile, I realized it was because this point was past the limits I set on the graph of 175 min$^{-1}$ 1.73 m$^{-2}$, which is the maximum preoperative GFR value displayed in the figure. Another discrepency I had was that a few points were very slightly off where they were in the figure from the publication, despite the process for creating the figure being the same. This was likely due to the publication moving some points very slightly so observations are not covering each other, making the figure more readable and easier to interpret. Additionally, despite the figure in the publication having the two lines superimposed in the figure, I found that in order to replicate the publication in the best way possible, I would have to just fit one regression line, despite attempting to plot two. Finally, there were a few formatting discrepencies as well. This includes the size of the box/border around the legend being a little too large and the fonts of the title and axes titles. These discrepencies were minor, however, and proved that Figure 1 is reproducible, but also illustrated to me the difficulties that come with along with reproducing figures and tables given only the dataset and original publication. Figure 1 was a time-intensive process, mainly due to the difficulties matching the formatting of the chart and that creating aesthetically pleasing tables and charts are often extremely difficult. 
+
+Table 2 was even more time intensive and difficult to reproduce. I was able to reproduce the results in the table exactly, but had some issues with the formatting of the table when knitting into a PDF. I had many formatting issues throughout the process, many of which I was able to figure out, including making the title "Adjusted* difference (95% CI) in mean postoperative eGFR" into two different lines, italicizing the "vs" within each of the effects, and removing the lines between each of the rows. However, there were a few formatting discrepencies that I was unable to match with the table from the publication identically. First, I could not get the P (in the title of the column "P-value") to be in italics after I already made the entire row bold. I also added the caption to the top of the table to match the description from the publication, but I was unable to remove "Table 1:" next to the caption which automatically rendered whenever I knit. Finally, despite successfully creating two lines for the titles of the columns using the "add_header_above" function, I was unable to remove a line between those two lines in the header. I had definitely learned through my experience in Stat313 (Advanced Data Visualization), but this experience further proved to me the difficulty of creating tables that make sense and are aesthetically pleasing.
+
+
+\newpage
+
+### References
+
+https://www.tutorialspoint.com/how-to-change-the-aspect-ratio-of-a-plot-in-ggplot2-in-r
+
+https://cran.r-project.org/web/packages/lemon/vignettes/capped-axes.html
+
+https://www.rdocumentation.org/packages/kableExtra/versions/1.3.4/topics/add_header_above
+
+https://bookdown.org/yihui/rmarkdown-cookbook/kable.html
+
+https://cran.r-project.org/web/packages/kableExtra/kableExtra.pdf
+
+http://www.sthda.com/english/wiki/ggplot2-point-shapes
+
+https://haozhu233.github.io/kableExtra/awesome_table_in_pdf.pdf
+
+https://www.rdocumentation.org/packages/stringr/versions/1.4.0/topics/str_glue
+
+https://stackoverflow.com/questions/49044753/scale-kable-table-to-fit-page-width
+
